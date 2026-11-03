@@ -89,17 +89,9 @@ pub fn print_accounts(state: &State, no_color: bool) {
     } else {
         // Always reserve a visible ADDED column, including on 72-column terminals.
         // On very wide terminals, preserve the unavailable quota placeholders.
-        let quotas = cols >= 110;
-        let name_w = if quotas { cols.saturating_sub(68).max(16) }
-            else { cols.saturating_sub(46).max(16) };
-        let head = if quotas {
-            format!("  | {:>4}  {:<4}  {}  {:<9}  {:<10}  {:<8}  {:<8} |",
-                "NUM", "ST", fit("ACCOUNT / ALIAS", name_w), "PROFILE",
-                "ADDED", "5H LEFT", "WK LEFT")
-        } else {
-            format!("  | {:>4}  {:<4}  {}  {:<9}  {:<10} |",
-                "NUM", "ST", fit("ACCOUNT / ALIAS", name_w), "PROFILE", "ADDED")
-        };
+        let name_w = cols.saturating_sub(46).max(16);
+        let head = format!(" | {:>4} {:<4} {} {:<9} {:<10} |",
+            "NUM", "ST", fit("ACCOUNT / ALIAS", name_w), "PROFILE", "ADDED");
         let rule = "=".repeat(head.chars().count().saturating_sub(4));
         println!("{}  +{}+{}", c.dim, rule, c.reset);
         println!("{}{}{}", c.bold, head, c.reset);
@@ -108,15 +100,9 @@ pub fn print_accounts(state: &State, no_color: bool) {
             let active = state.active.as_deref() == Some(&a.key);
             let profile = if a.original { "DEFAULT" } else { "ISOLATED" };
             let date = added_at_date(a.created_at_unix);
-            let line = if quotas {
-                format!("  | {:>4}  {:<4}  {}  {:<9}  {:<10}  {:<8}  {:<8} |",
-                    i + 1, if active { "LIVE" } else { "--" },
-                    fit(&cell_name(a), name_w), profile, date, "-", "-")
-            } else {
-                format!("  | {:>4}  {:<4}  {}  {:<9}  {:<10} |",
-                    i + 1, if active { "LIVE" } else { "--" },
-                    fit(&cell_name(a), name_w), profile, date)
-            };
+            let line = format!(" | {:>4} {:<4} {} {:<9} {:<10} |",
+                i + 1, if active { "LIVE" } else { "--" },
+                fit(&cell_name(a), name_w), profile, date);
             if active { println!("{}{}{}", c.green, line, c.reset); }
             else { println!("{}", line); }
         }
