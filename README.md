@@ -10,7 +10,7 @@
   </p>
 </div>
 
-<p align="center"><img src="assets/switcher-demo.svg" alt="Freebuff Auth switcher preview with fictional demo accounts" width="900"></p>
+<p align="center"><img src="assets/switcher-screenshot.png" alt="Freebuff Auth terminal account switcher screenshot" width="900"></p>
 
 > **Unofficial community project.** Not affiliated with or endorsed by Freebuff. The official Freebuff CLI handles login and account sessions.
 
