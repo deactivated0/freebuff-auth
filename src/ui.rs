@@ -72,7 +72,7 @@ pub fn print_accounts(state: &State, no_color: bool) {
         println!("{}  [ FREEBUFF // AUTH ]{}", c.red, c.reset);
     }
     println!("{}  ACCOUNT CONTROL CENTER{}", c.bold, c.reset);
-    println!("{}  Secure selector  ::  LIVE = selected  ::  a = login  ::  q = quit{}\n", c.dim, c.reset);
+    println!("{}  Secure selector  ::  LIVE = selected  ::  a = add  ::  d = delete  ::  i = import  ::  q = quit{}\n", c.dim, c.reset);
 
     let active_count = state.accounts.iter().filter(|a| state.active.as_deref() == Some(&a.key)).count();
     if cols < 72 {
@@ -112,24 +112,101 @@ pub fn print_accounts(state: &State, no_color: bool) {
     println!("{}  Usage percentages: unavailable from a verified Freebuff account API.{}\n", c.dim, c.reset);
 }
 
+fn delete_prompt(manager: &Manager, query: &str, c: &Colors) -> Result<()> {
+    let state = manager.list()?;
+    let index = match crate::resolve_index(&state, query) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("{}[ERROR]{} {e:#}", c.red, c.reset);
+            return Ok(());
+        }
+    };
+    let account = &state.accounts[index];
+    print!("  Are you sure you want to delete {} (account #{})? [y/N]: ", sanitize(&account.email), index + 1);
+    io::stdout().flush()?;
+    let mut confirm = String::new();
+    if io::stdin().read_line(&mut confirm)? == 0 {
+        println!("  Cancelled.");
+        return Ok(());
+    }
+    let confirm = confirm.trim().to_lowercase();
+    if confirm == "y" || confirm == "yes" {
+        match manager.remove(query) {
+            Ok(acc) => {
+                println!("{}[OK]{} Removed account #{} ({})", c.green, c.reset, index + 1, sanitize(&acc.email));
+            }
+            Err(e) => eprintln!("{}[ERROR]{} {e:#}", c.red, c.reset),
+        }
+    } else {
+        println!("  Cancelled.");
+    }
+    Ok(())
+}
+
 /// Returns Some(account) for a selection, or None when the user exits.
 pub fn switch_interactive(manager: &Manager, no_color: bool) -> Result<Option<Account>> {
     loop {
         let state = manager.list()?;
         print_accounts(&state, no_color);
         let c = Colors::new(no_color);
-        print!("{}  >>{} Enter account number [a=login, r=reload, q=quit]: ", c.red, c.reset);
+        print!("{}  >>{} Enter account number [a=add, d=delete, i=import, r=reload, q=quit]: ", c.red, c.reset);
         io::stdout().flush()?;
         let mut choice = String::new();
         if io::stdin().read_line(&mut choice)? == 0 { println!("\n  Cancelled."); return Ok(None); }
         let choice = choice.trim();
+        if let Some(target) = choice.strip_prefix("d ").or_else(|| choice.strip_prefix("D "))
+            .or_else(|| choice.strip_prefix("del ")).or_else(|| choice.strip_prefix("rm ")) {
+            delete_prompt(manager, target.trim(), &c)?;
+            continue;
+        }
         match choice {
             "" | "q" | "Q" => { println!("  Cancelled."); return Ok(None); }
             "r" | "R" => continue,
-            "a" | "A" => {
-                match manager.login(None) {
-                    Ok(a) => println!("[OK] Added {} (added {})", sanitize(&a.email), added_at_local(a.created_at_unix)),
-                    Err(e) => eprintln!("[ERROR] {e:#}"),
+            "d" | "D" | "del" | "DEL" | "delete" | "DELETE" | "rm" | "RM" => {
+                print!("  Enter account number to delete: ");
+                io::stdout().flush()?;
+                let mut target_input = String::new();
+                if io::stdin().read_line(&mut target_input)? == 0 {
+                    println!("\n  Cancelled.");
+                    return Ok(None);
+                }
+                let target = target_input.trim();
+                if !target.is_empty() {
+                    delete_prompt(manager, target, &c)?;
+                }
+                continue;
+            }
+            "a" | "A" | "add" | "ADD" | "+" => {
+                print!("  Account alias (optional; Enter to skip): ");
+                io::stdout().flush()?;
+                let mut alias_input = String::new();
+                if io::stdin().read_line(&mut alias_input)? == 0 {
+                    println!("\n  Cancelled.");
+                    return Ok(None);
+                }
+                let alias = alias_input.trim();
+                let alias_opt = if alias.is_empty() { None } else { Some(alias.to_string()) };
+                match manager.login(alias_opt) {
+                    Ok(a) => println!("{}[OK]{} Added and activated {} (added {})",
+                        c.green, c.reset, sanitize(&a.email), added_at_local(a.created_at_unix)),
+                    Err(e) => eprintln!("{}[ERROR]{} {e:#}", c.red, c.reset),
+                }
+                continue;
+            }
+            "i" | "I" | "import" | "IMPORT" => {
+                print!("  Account alias (optional; Enter to skip): ");
+                io::stdout().flush()?;
+                let mut alias_input = String::new();
+                if io::stdin().read_line(&mut alias_input)? == 0 {
+                    println!("\n  Cancelled.");
+                    return Ok(None);
+                }
+                let alias = alias_input.trim();
+                let alias_opt = if alias.is_empty() { None } else { Some(alias.to_string()) };
+                match manager.add_original(alias_opt) {
+                    Ok(a) => println!("{}[OK]{} Imported and registered {} (added {})",
+                        c.green, c.reset, sanitize(&a.email), added_at_local(a.created_at_unix)),
+                    Err(e) => eprintln!("{}[ERROR]{} {e:#}", c.red, c.reset),
                 }
                 continue;
             }
@@ -137,6 +214,7 @@ pub fn switch_interactive(manager: &Manager, no_color: bool) -> Result<Option<Ac
                 Ok(account) => {
                     println!("\n{}[OK]{} Account #{} selected: {}", c.green, c.reset,
                         choice, sanitize(&account.email));
+                    println!("     Active Freebuff account updated: {}", sanitize(&account.email));
                     return Ok(Some(account));
                 }
                 Err(err) => {

@@ -102,6 +102,73 @@ pub struct Profile {
     pub name: String,
 }
 
+pub fn get_keychain_token(cred_path: &Path) -> Option<String> {
+    let output = Command::new("secret-tool")
+        .args(["lookup", "service", "freebuff-cli", "account"])
+        .arg(cred_path.as_os_str())
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+    None
+}
+
+pub fn set_keychain_token(cred_path: &Path, token: &str) -> Result<()> {
+    let mut child = Command::new("secret-tool")
+        .args([
+            "store",
+            &format!("--label=freebuff-cli/{}", cred_path.display()),
+            "service",
+            "freebuff-cli",
+            "account",
+        ])
+        .arg(cred_path.as_os_str())
+        .args(["xdg:schema", "com.oven-sh.bun.Secret"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .context("spawning secret-tool")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(token.as_bytes());
+    }
+    let status = child.wait()?;
+    if !status.success() {
+        bail!("secret-tool exited with status {}", status);
+    }
+    Ok(())
+}
+
+pub fn get_profile_token(cred_path: &Path) -> Option<String> {
+    if let Some(token) = get_keychain_token(cred_path) {
+        return Some(token);
+    }
+    if let Ok(content) = fs::read_to_string(cred_path) {
+        if let Ok(val) = serde_json::from_str::<Value>(&content) {
+            if let Some(token) = val.get("default").and_then(|d| d.get("authToken")).and_then(Value::as_str) {
+                if !token.is_empty() {
+                    return Some(token.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn write_secure_file(path: &Path, content: &[u8]) -> Result<()> {
+    let parent = path.parent().context("No parent directory")?;
+    private_dir(parent)?;
+    let mut file = NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
+    file.as_file().set_permissions(fs::Permissions::from_mode(0o600))?;
+    file.write_all(content)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct Manager {
     pub root: PathBuf,
@@ -174,10 +241,33 @@ impl Manager {
             if state.version != 1 {
                 bail!("Unsupported account registry version {}", state.version);
             }
+            for account in &mut state.accounts {
+                if account.config_dir == self.original_dir {
+                    let dir = self.root.join("profiles").join(&account.key);
+                    let _ = private_dir(&dir);
+                    let _ = fs::copy(self.original_dir.join("credentials.json"), dir.join("credentials.json"));
+                    if self.original_dir.join("settings.json").exists() {
+                        let _ = fs::copy(self.original_dir.join("settings.json"), dir.join("settings.json"));
+                    }
+                    if let Some(tok) = get_profile_token(&self.original_dir.join("credentials.json")) {
+                        let _ = set_keychain_token(&dir.join("credentials.json"), &tok);
+                    }
+                    account.config_dir = dir;
+                }
+            }
             if !state.original_discovered {
                 state.original_discovered = true;
                 if let Some(profile) = read_profile(&self.original_dir)? {
-                    register(&mut state, profile, self.original_dir.clone(), true, None)?;
+                    let dir = self.root.join("profiles").join(Uuid::new_v4().to_string());
+                    let _ = private_dir(&dir);
+                    let _ = fs::copy(self.original_dir.join("credentials.json"), dir.join("credentials.json"));
+                    if self.original_dir.join("settings.json").exists() {
+                        let _ = fs::copy(self.original_dir.join("settings.json"), dir.join("settings.json"));
+                    }
+                    if let Some(tok) = get_profile_token(&self.original_dir.join("credentials.json")) {
+                        let _ = set_keychain_token(&dir.join("credentials.json"), &tok);
+                    }
+                    register(&mut state, profile, dir, true, None)?;
                 }
             }
             let value = op(&mut state)?;
@@ -188,6 +278,77 @@ impl Manager {
         outcome
     }
 
+    pub fn sync_account_to_live(&self, account: &Account) -> Result<()> {
+        if account.config_dir == self.original_dir {
+            return Ok(());
+        }
+        private_dir(&self.original_dir)?;
+        let src_cred = account.config_dir.join("credentials.json");
+        let dst_cred = self.original_dir.join("credentials.json");
+        if src_cred.exists() {
+            let mut data = fs::read_to_string(&src_cred)?;
+            let maybe_tok = get_profile_token(&src_cred);
+            if let Some(ref tok) = maybe_tok {
+                let _ = set_keychain_token(&dst_cred, tok);
+                if let Ok(mut val) = serde_json::from_str::<Value>(&data) {
+                    if let Some(obj) = val.get_mut("default").and_then(Value::as_object_mut) {
+                        obj.insert("authToken".to_string(), Value::String(tok.clone()));
+                        if let Ok(serialized) = serde_json::to_string_pretty(&val) {
+                            data = serialized;
+                        }
+                    }
+                }
+            }
+            write_secure_file(&dst_cred, data.as_bytes())?;
+        }
+        let src_settings = account.config_dir.join("settings.json");
+        let dst_settings = self.original_dir.join("settings.json");
+        if src_settings.exists() {
+            let _ = fs::copy(&src_settings, &dst_settings);
+        }
+        let src_analytics = account.config_dir.join("analytics-id.json");
+        let dst_analytics = self.original_dir.join("analytics-id.json");
+        if src_analytics.exists() {
+            let _ = fs::copy(&src_analytics, &dst_analytics);
+        }
+        Ok(())
+    }
+
+    pub fn save_live_to_account(&self, account: &Account) -> Result<()> {
+        if account.config_dir == self.original_dir {
+            return Ok(());
+        }
+        let live_cred = self.original_dir.join("credentials.json");
+        if !live_cred.exists() {
+            return Ok(());
+        }
+        if let Ok(Some(profile)) = read_profile(&self.original_dir) {
+            if profile.id == account.user_id {
+                let _ = private_dir(&account.config_dir);
+                let dst_cred = account.config_dir.join("credentials.json");
+                let _ = fs::copy(&live_cred, &dst_cred);
+                if let Some(tok) = get_profile_token(&live_cred) {
+                    let _ = set_keychain_token(&dst_cred, &tok);
+                    if let Ok(content) = fs::read_to_string(&dst_cred) {
+                        if let Ok(mut val) = serde_json::from_str::<Value>(&content) {
+                            if let Some(obj) = val.get_mut("default").and_then(Value::as_object_mut) {
+                                obj.insert("authToken".to_string(), Value::String(tok));
+                                if let Ok(serialized) = serde_json::to_string_pretty(&val) {
+                                    let _ = write_secure_file(&dst_cred, serialized.as_bytes());
+                                }
+                            }
+                        }
+                    }
+                }
+                let live_settings = self.original_dir.join("settings.json");
+                if live_settings.exists() {
+                    let _ = fs::copy(&live_settings, account.config_dir.join("settings.json"));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn list(&self) -> Result<State> {
         self.edit(|s| Ok(s.clone()))
     }
@@ -195,9 +356,32 @@ impl Manager {
     pub fn add_original(&self, alias: Option<String>) -> Result<Account> {
         let profile = read_profile(&self.original_dir)?
             .context("No signed-in Freebuff profile found. Run `freebuff login` first")?;
-        self.edit(|state| {
-            register(state, profile, self.original_dir.clone(), true, alias)
-        })
+        self.ensure_root()?;
+        let dir = self.root.join("profiles").join(Uuid::new_v4().to_string());
+        private_dir(&dir)?;
+        let dst_cred = dir.join("credentials.json");
+        let _ = fs::copy(self.original_dir.join("credentials.json"), &dst_cred);
+        if self.original_dir.join("settings.json").exists() {
+            let _ = fs::copy(self.original_dir.join("settings.json"), dir.join("settings.json"));
+        }
+        if let Some(tok) = get_profile_token(&self.original_dir.join("credentials.json")) {
+            let _ = set_keychain_token(&dst_cred, &tok);
+            if let Ok(content) = fs::read_to_string(&dst_cred) {
+                if let Ok(mut val) = serde_json::from_str::<Value>(&content) {
+                    if let Some(obj) = val.get_mut("default").and_then(Value::as_object_mut) {
+                        obj.insert("authToken".to_string(), Value::String(tok));
+                        if let Ok(serialized) = serde_json::to_string_pretty(&val) {
+                            let _ = write_secure_file(&dst_cred, serialized.as_bytes());
+                        }
+                    }
+                }
+            }
+        }
+        let account = self.edit(|state| {
+            register(state, profile, dir, true, alias)
+        })?;
+        let _ = self.sync_account_to_live(&account);
+        Ok(account)
     }
 
     pub fn import_dir(&self, dir: PathBuf, alias: Option<String>) -> Result<Account> {
@@ -206,7 +390,9 @@ impl Manager {
         }
         let profile = read_profile(&dir)?
             .with_context(|| format!("No signed-in Freebuff profile in {}", dir.display()))?;
-        self.edit(|state| register(state, profile, dir, false, alias))
+        let account = self.edit(|state| register(state, profile, dir, false, alias))?;
+        let _ = self.sync_account_to_live(&account);
+        Ok(account)
     }
 
     /// Perform the official browser login inside a new, isolated Freebuff
@@ -225,7 +411,8 @@ impl Manager {
         let profile = read_profile(&dir)?
             .context("Freebuff login succeeded, but no valid credentials.json profile appeared")?;
         let account = self.edit(|state| register(state, profile, dir, false, alias))?;
-        println!("[OK] Registered {} (added {})", sanitize(&account.email), added_at_local(account.created_at_unix));
+        let _ = self.sync_account_to_live(&account);
+        println!("[OK] Registered and activated {} (added {})", sanitize(&account.email), added_at_local(account.created_at_unix));
         Ok(account)
     }
 
@@ -235,6 +422,14 @@ impl Manager {
             let account = state.accounts[index].clone();
             // Never activate an account whose backing directory was replaced.
             verify_profile(&account)?;
+            if let Some(prev_key) = state.active.as_deref() {
+                if prev_key != account.key {
+                    if let Some(prev_acc) = state.accounts.iter().find(|a| a.key == prev_key) {
+                        let _ = self.save_live_to_account(prev_acc);
+                    }
+                }
+            }
+            self.sync_account_to_live(&account)?;
             if state.active.as_deref() != Some(&account.key) {
                 state.previous = state.active.clone();
                 state.active = Some(account.key.clone());
@@ -257,6 +452,14 @@ impl Manager {
                 let next = (start + offset) % state.accounts.len();
                 let account = state.accounts[next].clone();
                 if verify_profile(&account).is_ok() {
+                    if let Some(prev_key) = state.active.as_deref() {
+                        if prev_key != account.key {
+                            if let Some(prev_acc) = state.accounts.iter().find(|a| a.key == prev_key) {
+                                let _ = self.save_live_to_account(prev_acc);
+                            }
+                        }
+                    }
+                    self.sync_account_to_live(&account)?;
                     if state.active.as_deref() != Some(&account.key) {
                         state.previous = state.active.clone();
                         state.active = Some(account.key.clone());
@@ -293,6 +496,11 @@ impl Manager {
             let account = state.accounts.remove(index);
             if state.active.as_deref() == Some(&account.key) {
                 state.active = state.accounts.first().map(|a| a.key.clone());
+                if let Some(new_key) = state.active.as_deref() {
+                    if let Some(new_acc) = state.accounts.iter().find(|a| a.key == new_key) {
+                        let _ = self.sync_account_to_live(new_acc);
+                    }
+                }
             }
             if state.previous.as_deref() == Some(&account.key) {
                 state.previous = None;
@@ -307,6 +515,13 @@ impl Manager {
         let account = state.accounts.into_iter().find(|a| a.key == key)
             .context("The selected profile was removed")?;
         verify_profile(&account)?;
+        if self.original_dir.join("credentials.json").exists() {
+            let live_profile = read_profile(&self.original_dir)?
+                .context("Live Freebuff credentials missing or invalid")?;
+            if live_profile.id != account.user_id {
+                bail!("Backing Freebuff login changed for {}. Run `freebuff-auth add` or re-register that directory", sanitize(&account.email));
+            }
+        }
         Ok(account)
     }
 
@@ -330,7 +545,7 @@ fn register(
     validate_alias(alias.as_deref())?;
     // An existing path might have been re-logged-in to a different account.
     // Update its identity, rather than accidentally using the old account name.
-    if let Some(index) = state.accounts.iter().position(|a| a.config_dir == dir) {
+    if let Some(index) = state.accounts.iter().position(|a| a.config_dir == dir || (original && a.original)) {
         if let Some(ref alias) = alias {
             if state.accounts.iter().enumerate().any(|(i, a)|
                 i != index && (a.alias.as_ref().is_some_and(|v| v.eq_ignore_ascii_case(alias)) ||
@@ -342,6 +557,7 @@ fn register(
         existing.user_id = profile.id;
         existing.email = profile.email;
         existing.name = profile.name;
+        existing.config_dir = dir;
         if alias.is_some() { existing.alias = alias; }
         let account = existing.clone();
         let old = state.active.replace(account.key.clone());
