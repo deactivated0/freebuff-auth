@@ -1,42 +1,94 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="Freebuff Auth logo" width="128" height="128">
+  <img src="assets/logo.svg" alt="Freebuff Auth logo — Rust CLI for managing multiple Freebuff accounts" width="128" height="128">
   <h1>Freebuff Auth</h1>
-  <p><strong>Manage multiple Freebuff CLI accounts with a fast, Rust-powered terminal switcher.</strong></p>
-  <p>Keep profiles separate. Pick one. Launch Freebuff with it.</p>
+  <p><strong>A fast Rust CLI that manages multiple Freebuff accounts and switches between them from the terminal.</strong></p>
+  <p>Keep every login in its own profile. Pick one. Launch Freebuff with it.</p>
   <p>
     <a href="https://github.com/deactivated0/freebuff-auth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/deactivated0/freebuff-auth?style=flat&color=0ea5e9"></a>
+    <a href="https://github.com/deactivated0/freebuff-auth/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/deactivated0/freebuff-auth?style=flat&color=8b5cf6"></a>
     <a href="https://github.com/deactivated0/freebuff-auth/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-22c55e.svg"></a>
+    <img alt="Platforms: Linux, macOS, Windows" src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-64748b.svg">
     <img alt="Rust 1.74+" src="https://img.shields.io/badge/Rust-1.74%2B-orange.svg">
   </p>
 </div>
 
-<p align="center"><img src="assets/switcher-screenshot.png" alt="Freebuff Auth terminal account switcher screenshot" width="900"></p>
+<p align="center"><img src="assets/switcher-screenshot.png" alt="Freebuff Auth interactive account switcher in a terminal, listing Freebuff accounts with the active profile highlighted" width="900"></p>
 
 > **Unofficial community project.** Not affiliated with or endorsed by Freebuff. The official Freebuff CLI handles login and account sessions.
 
-<p align="center"><img src="assets/workflow-demo.svg" alt="Illustrative Freebuff Auth add-account and switch workflow" width="900"></p>
+<p align="center"><img src="assets/workflow-demo.svg" alt="Demo: adding a second Freebuff account, then switching and launching Freebuff with it" width="900"></p>
+
+## Contents
+
+- [Why Freebuff Auth?](#why-freebuff-auth)
+- [Install](#install)
+  - [Prebuilt binaries](#prebuilt-binaries-recommended)
+  - [From source with Cargo](#from-source-with-cargo)
+  - [Nix and NixOS](#nix-and-nixos)
+  - [NixOS installer ISO](#nixos-installer-iso)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [How profiles are kept separate](#how-profiles-are-kept-separate)
+- [Configuration](#configuration)
+- [FAQ](#faq)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Why Freebuff Auth?
 
-Manage multiple Freebuff CLI logins without manually swapping credential files. Each account gets a separate profile directory, while the official Freebuff CLI remains responsible for authentication.
+Freebuff Auth is a **multi-account manager for the Freebuff CLI**. Instead of swapping credential files by hand when you want to use a different Freebuff account, you register each login once and switch with a single command. The official Freebuff CLI stays responsible for authentication, so this tool never touches your tokens.
 
-- **Separate profiles:** keep each account's configuration in its own directory.
-- **Fast switching:** choose by number, email, alias, or account ID.
-- **Launch in one step:** start Freebuff using the selected profile.
-- **Token-conscious:** never prints, copies, or rewrites bearer tokens.
-- **Honest usage data:** does not invent quota, plan, or reset information.
-- **Rust-powered:** small native command-line tools, no runtime framework.
+| | |
+| --- | --- |
+| **Separate profiles** | Every account lives in its own configuration directory. |
+| **Fast switching** | Choose by number, email, alias, or account ID. |
+| **One-step launch** | Start Freebuff with the selected account in one command. |
+| **Token-conscious** | Never prints, copies, or rewrites bearer tokens. |
+| **Honest output** | Shows no invented quota, plan, or reset information. |
+| **Native and small** | Two Rust binaries, no runtime or framework. |
+
+Works on **Linux, macOS, and Windows**, with static Linux builds and a Nix flake for reproducible installs.
 
 ## Install
 
-### Requirements
+**Requirements**
 
-- Rust 1.74 or newer, including Cargo.
-- The official Freebuff CLI available as `freebuff` on your `PATH`.
+- The official Freebuff CLI, available as `freebuff` on your `PATH`. Install it separately using its current vendor instructions.
+- To build from source: Rust 1.74 or newer, including Cargo.
 
-Install the official Freebuff CLI separately, using its current vendor instructions.
+### Prebuilt binaries (recommended)
 
-### Build and install
+Download the asset for your platform from the [latest release](https://github.com/deactivated0/freebuff-auth/releases/latest). Every archive holds both `freebuff-auth` and `freebuff-switch`, plus a matching `.sha256` checksum.
+
+| Platform | Asset |
+| --- | --- |
+| **Windows x86_64** | `freebuff-auth-v*-x86_64-pc-windows-msvc.zip` |
+| **Linux x86_64** | `freebuff-auth-v*-x86_64-unknown-linux-musl.tar.gz` (static, any distro) |
+| **Linux arm64** | `freebuff-auth-v*-aarch64-unknown-linux-musl.tar.gz` (static, Raspberry Pi / ARM servers) |
+| **macOS Apple Silicon** | `freebuff-auth-v*-aarch64-apple-darwin.tar.gz` |
+| **macOS Intel** | `freebuff-auth-v*-x86_64-apple-darwin.tar.gz` |
+
+**Linux and macOS**
+
+```sh
+sha256sum -c freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz.sha256
+tar xzf freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+install -m755 freebuff-auth-v0.2.0-x86_64-unknown-linux-musl/bin/* ~/.local/bin/
+```
+
+On macOS use `shasum -a 256 -c <file>.sha256` for the first step. Make sure `~/.local/bin` is on your `PATH`.
+
+**Windows**
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\freebuff-auth-v0.2.0-x86_64-pc-windows-msvc.zip
+Expand-Archive .\freebuff-auth-v0.2.0-x86_64-pc-windows-msvc.zip -DestinationPath .
+```
+
+Then add the extracted `bin` folder to your `PATH`. The executables are `freebuff-auth.exe` and `freebuff-switch.exe`.
+
+### From source with Cargo
 
 ```sh
 git clone https://github.com/deactivated0/freebuff-auth.git
@@ -46,34 +98,15 @@ cargo install --path .
 
 Cargo installs `freebuff-auth` and `freebuff-switch` into its binary directory, usually `~/.cargo/bin`. Add that directory to your `PATH` if needed.
 
-### Prebuilt binaries
-
-Every tagged release ships both binaries only — the official `freebuff` CLI still has to be installed separately.
-
-| Platform | Asset |
-| --- | --- |
-| Linux x86_64 | `freebuff-auth-v*-x86_64-unknown-linux-musl.tar.gz` (static) |
-| Linux arm64 | `freebuff-auth-v*-aarch64-unknown-linux-musl.tar.gz` (static) |
-| macOS Apple Silicon | `freebuff-auth-v*-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `freebuff-auth-v*-x86_64-apple-darwin.tar.gz` |
-| Windows x86_64 | `freebuff-auth-v*-x86_64-pc-windows-msvc.zip` |
-
-Each asset has a matching `.sha256` file. On Linux and macOS:
+You can also install the latest tagged release directly:
 
 ```sh
-sha256sum -c freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz.sha256
+cargo install --git https://github.com/deactivated0/freebuff-auth --tag v0.2.0
 ```
 
-```sh
-tar xzf freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-install -m755 freebuff-auth-v0.2.0-x86_64-unknown-linux-musl/bin/* ~/.local/bin/
-```
+### Nix and NixOS
 
-On Windows, extract the `.zip` and add its `bin` directory to `PATH`.
-
-### Nix / NixOS
-
-This repository is a flake. It packages both binaries, exports a NixOS module, and can build a live installer ISO.
+This repository is a Nix flake. It packages both binaries, exports a NixOS module, and can build a live installer ISO.
 
 ```sh
 nix run github:deactivated0/freebuff-auth                       # freebuff-auth
@@ -81,9 +114,7 @@ nix run github:deactivated0/freebuff-auth#freebuff-switch
 nix profile install github:deactivated0/freebuff-auth
 ```
 
-#### On an existing NixOS system
-
-Add the flake as an input and enable the module in your own `flake.nix`:
+On an existing NixOS system, add the flake as an input and enable the module in your own `flake.nix`:
 
 ```nix
 {
@@ -110,13 +141,11 @@ Then apply it:
 sudo nixos-rebuild switch --flake /etc/nixos#myhost
 ```
 
-This puts `freebuff-auth` and `freebuff-switch` on `PATH` system-wide. To try it without changing your system configuration, use `nix run` or `nix profile install` above.
+This puts `freebuff-auth` and `freebuff-switch` on `PATH` system-wide. The official `freebuff` CLI is not packaged here; install it separately.
 
-The official `freebuff` CLI is not packaged here; install it separately.
+### NixOS installer ISO
 
-#### Flake-based NixOS installer
-
-Build the live ISO, write it to a USB stick, boot it, and install onto a disk:
+The flake can build a bootable live ISO that installs a NixOS system with Freebuff Auth already enabled. Build it, write it to a USB stick, boot it, and install onto a disk:
 
 ```sh
 nix build .#installer-iso
@@ -139,83 +168,116 @@ sudo nixos-rebuild switch --flake /etc/nixos#freebuff
 
 ## Quick start
 
+**1. Register the account you already use**
+
 ```sh
-# Register the existing default Freebuff login
 freebuff-auth add --alias personal
+```
 
-# Sign in to another account with the official Freebuff browser login
+**2. Sign in to a second account**
+
+This opens the official Freebuff browser login inside a new isolated profile.
+
+```sh
 freebuff-auth login --alias work
+```
 
-# List accounts and choose one
+**3. See what you have**
+
+```sh
 freebuff-auth list
-freebuff-auth switch work
+```
 
-# Launch Freebuff with the selected profile
+**4. Switch and launch**
+
+```sh
+freebuff-auth switch work
 freebuff-auth run
 ```
 
-Open the interactive account picker any time:
-
-```sh
-freebuff-switch
-```
-
-Switch and launch together:
+Or do both at once:
 
 ```sh
 freebuff-auth switch work --run
-freebuff-switch --run
 ```
 
-`switch` selects the profile used by `freebuff-auth run`. A Freebuff process already running elsewhere keeps its current session; restart it through `freebuff-auth run` to use another account.
+Prefer a menu to typing commands? Run the interactive picker:
+
+```sh
+freebuff-switch            # pick an account
+freebuff-switch --run      # pick an account and launch Freebuff
+```
 
 ## Commands
 
-| Command | Description |
+Every command is available from `freebuff-auth`. `freebuff-switch` is the interactive picker for `switch` and `run`.
+
+| Command | What it does |
 | --- | --- |
 | `list` | Show registered accounts and the selected profile |
-| `login` | Sign in through official Freebuff CLI in a new isolated profile |
+| `login` | Sign in through the official Freebuff CLI in a new isolated profile |
 | `add` | Register the existing default Freebuff profile |
 | `import PATH` | Register an existing profile without copying credentials |
-| `switch [QUERY]` | Select by number, alias, email, ID, or `-` for previous |
-| `rotate` | Select next profile in registration order; not quota-aware |
-| `current` | Show selected account |
+| `switch [QUERY]` | Select by number, alias, email, ID, or `-` for the previous account |
+| `rotate` | Select the next profile in registration order; not quota-aware |
+| `current` | Show the selected account |
 | `alias set QUERY NAME` | Set an account nickname |
 | `alias clear QUERY` | Remove an account nickname |
-| `status` | Show registry and selected profile health |
+| `status` | Show registry and selected-profile health |
 | `path` | Show configuration paths |
-| `run -- ARGS...` | Launch official Freebuff and pass it arguments |
-| `remove QUERY --yes` | Unregister account without deleting profile files |
-| `usage` | Explain usage-stat limitations |
+| `run -- ARGS...` | Launch the official Freebuff CLI and pass it arguments |
+| `remove QUERY --yes` | Unregister an account without deleting its profile files |
+| `usage` | Explain the usage-stat limitations |
 
 Run `freebuff-auth --help` or `freebuff-auth COMMAND --help` for all options.
 
-## Profile isolation and privacy
+A Freebuff process that is already running keeps its current session. Restart it through `freebuff-auth run` to use a different account.
 
-Freebuff Auth sets `FREEBUFF_CONFIG_DIR` when it launches Freebuff. Each registered account uses a separate config directory, so the official CLI can manage its own credentials and OS keychain entry for that profile.
+## How profiles are kept separate
+
+Freebuff Auth sets `FREEBUFF_CONFIG_DIR` when it launches Freebuff. Each registered account gets its own config directory, so the official CLI manages credentials and the OS keychain entry for that profile, independently of the others.
 
 Default paths:
 
 ```text
 ~/.config/manicode/credentials.json              existing Freebuff profile
-~/.config/freebuff-auth/accounts.json             account metadata and profile paths
-~/.config/freebuff-auth/profiles/<profile-id>/    isolated profiles
+~/.config/freebuff-auth/accounts.json            account metadata and profile paths
+~/.config/freebuff-auth/profiles/<profile-id>/   isolated profiles
 ```
 
-The account registry stores metadata and paths, not bearer tokens. On Unix, its directory is restricted to the current user. `remove` unregisters an account but leaves profile files and keychain entries intact.
+The registry stores metadata and paths, **not** bearer tokens. On Unix its directory is restricted to the current user. `remove` unregisters an account but leaves profile files and keychain entries intact.
 
-Configuration variables:
+## Configuration
 
-- `FREEBUFF_BIN`: path to official Freebuff executable.
-- `FREEBUFF_CONFIG_DIR`: existing/default profile directory to register.
-- `FREEBUFF_AUTH_HOME`: alternate Freebuff Auth data directory.
-- `NO_COLOR=1`: disable colored output.
+| Variable | Purpose |
+| --- | --- |
+| `FREEBUFF_BIN` | Path to the official Freebuff executable |
+| `FREEBUFF_CONFIG_DIR` | Existing/default profile directory to register |
+| `FREEBUFF_AUTH_HOME` | Alternate Freebuff Auth data directory |
+| `NO_COLOR=1` | Disable colored output |
 
-## Scope and limitations
+## FAQ
+
+**Can I use several Freebuff accounts on one machine?**
+Yes. Each account lives in its own profile directory, and `freebuff-auth switch` decides which one `freebuff-auth run` launches.
+
+**Does switching accounts log me out?**
+No. Profiles are isolated, and each keeps its own session managed by the official Freebuff CLI. Switching only changes which profile is used next.
+
+**Does Freebuff Auth store or read my tokens?**
+No. It stores profile paths and metadata, and never prints, copies, or rewrites bearer tokens. Login and OAuth remain with the official CLI.
+
+**Why does it not show quota or plan usage?**
+There is no verified, supported usage API for this tool to rely on, so it reports nothing rather than guessing.
+
+**Does it work on Windows, macOS, and Linux?**
+Yes. Prebuilt Windows, macOS, and static Linux binaries are published on every release, and the Nix flake covers Linux and NixOS.
+
+## Limitations
 
 - Login and OAuth are handled by the official Freebuff CLI.
 - Tokens are not extracted, migrated, or rewritten.
-- Quotas and plan limits are not shown because no verified supported usage API is available here.
+- Quotas and plan limits are not shown, because no verified supported usage API is available here.
 - Switching does not change an already-running Freebuff process.
 
 ## Contributing
