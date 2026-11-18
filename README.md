@@ -46,6 +46,72 @@ cargo install --path .
 
 Cargo installs `freebuff-auth` and `freebuff-switch` into its binary directory, usually `~/.cargo/bin`. Add that directory to your `PATH` if needed.
 
+### Nix / NixOS
+
+This repository is a flake. It packages both binaries, exports a NixOS module, and can build a live installer ISO.
+
+```sh
+nix run github:deactivated0/freebuff-auth                       # freebuff-auth
+nix run github:deactivated0/freebuff-auth#freebuff-switch
+nix profile install github:deactivated0/freebuff-auth
+```
+
+#### On an existing NixOS system
+
+Add the flake as an input and enable the module in your own `flake.nix`:
+
+```nix
+{
+  inputs.freebuff-auth.url = "github:deactivated0/freebuff-auth";
+
+  outputs = { nixpkgs, freebuff-auth, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        freebuff-auth.nixosModules.default
+        {
+          programs.freebuff-auth.enable = true;
+          nixpkgs.overlays = [ freebuff-auth.overlays.default ];
+        }
+      ];
+    };
+  };
+}
+```
+
+Then apply it:
+
+```sh
+sudo nixos-rebuild switch --flake /etc/nixos#myhost
+```
+
+This puts `freebuff-auth` and `freebuff-switch` on `PATH` system-wide. To try it without changing your system configuration, use `nix run` or `nix profile install` above.
+
+The official `freebuff` CLI is not packaged here; install it separately.
+
+#### Flake-based NixOS installer
+
+Build the live ISO, write it to a USB stick, boot it, and install onto a disk:
+
+```sh
+nix build .#installer-iso
+sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress oflag=sync
+```
+
+On the booted ISO:
+
+```sh
+sudo freebuff-install /dev/nvme0n1   # ERASES that disk
+```
+
+The script creates a 1 GiB EFI partition at `/boot` and an ext4 root, copies this flake to `/etc/nixos`, and runs `nixos-install --flake /mnt/etc/nixos#freebuff`. It needs network access to fetch `nixpkgs`. The installed system boots with systemd-boot, enables flakes, and includes `freebuff-auth` and `freebuff-switch`.
+
+The first account is `freebuff` with password `freebuff`; change it with `passwd`. Afterwards the system is managed with:
+
+```sh
+sudo nixos-rebuild switch --flake /etc/nixos#freebuff
+```
+
 ## Quick start
 
 ```sh
