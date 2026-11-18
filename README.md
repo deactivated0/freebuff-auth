@@ -46,6 +46,31 @@ cargo install --path .
 
 Cargo installs `freebuff-auth` and `freebuff-switch` into its binary directory, usually `~/.cargo/bin`. Add that directory to your `PATH` if needed.
 
+### Prebuilt binaries
+
+Every tagged release ships both binaries only — the official `freebuff` CLI still has to be installed separately.
+
+| Platform | Asset |
+| --- | --- |
+| Linux x86_64 | `freebuff-auth-v*-x86_64-unknown-linux-musl.tar.gz` (static) |
+| Linux arm64 | `freebuff-auth-v*-aarch64-unknown-linux-musl.tar.gz` (static) |
+| macOS Apple Silicon | `freebuff-auth-v*-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `freebuff-auth-v*-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `freebuff-auth-v*-x86_64-pc-windows-msvc.zip` |
+
+Each asset has a matching `.sha256` file. On Linux and macOS:
+
+```sh
+sha256sum -c freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz.sha256
+```
+
+```sh
+tar xzf freebuff-auth-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+install -m755 freebuff-auth-v0.2.0-x86_64-unknown-linux-musl/bin/* ~/.local/bin/
+```
+
+On Windows, extract the `.zip` and add its `bin` directory to `PATH`.
+
 ### Nix / NixOS
 
 This repository is a flake. It packages both binaries, exports a NixOS module, and can build a live installer ISO.
