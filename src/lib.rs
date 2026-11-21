@@ -684,11 +684,74 @@ fn private_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn which_in_path(binary: &str) -> Option<PathBuf> {
+    if let Some(path_var) = env::var_os("PATH") {
+        for dir in env::split_paths(&path_var) {
+            let full = dir.join(binary);
+            if full.is_file() {
+                return Some(full);
+            }
+        }
+    }
+    None
+}
+
+pub fn resolve_freebuff_binary() -> Result<PathBuf> {
+    if let Some(bin) = env::var_os("FREEBUFF_BIN") {
+        if !bin.is_empty() {
+            let p = PathBuf::from(bin);
+            if p.is_file() {
+                return Ok(p);
+            }
+        }
+    }
+    if let Some(path) = which_in_path("freebuff") {
+        return Ok(path);
+    }
+    if let Ok(home) = home_dir() {
+        let candidates = [
+            home.join(".npm-global/bin/freebuff"),
+            home.join(".local/bin/freebuff"),
+            home.join(".cargo/bin/freebuff"),
+            home.join("bin/freebuff"),
+            PathBuf::from("/usr/local/bin/freebuff"),
+            PathBuf::from("/usr/bin/freebuff"),
+            PathBuf::from("/bin/freebuff"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+    bail!("Cannot find official Freebuff binary; set FREEBUFF_BIN to its absolute path");
+}
+
 pub fn run_freebuff(config_dir: &Path, args: &[OsString]) -> Result<ExitStatus> {
-    let binary = env::var_os("FREEBUFF_BIN").unwrap_or_else(|| OsString::from("freebuff"));
+    let binary = resolve_freebuff_binary()?;
+    let mut path_dirs = vec![];
+    if let Ok(home) = home_dir() {
+        path_dirs.push(home.join(".npm-global/bin"));
+        path_dirs.push(home.join(".local/bin"));
+        path_dirs.push(home.join(".cargo/bin"));
+        path_dirs.push(home.join("bin"));
+    }
+    path_dirs.push(PathBuf::from("/usr/local/bin"));
+    path_dirs.push(PathBuf::from("/usr/bin"));
+    path_dirs.push(PathBuf::from("/bin"));
+    if let Some(existing) = env::var_os("PATH") {
+        for p in env::split_paths(&existing) {
+            if !path_dirs.contains(&p) {
+                path_dirs.push(p);
+            }
+        }
+    }
+    let new_path = env::join_paths(path_dirs).unwrap_or_else(|_| env::var_os("PATH").unwrap_or_default());
+
     let status = Command::new(&binary)
         .args(args)
         .env("FREEBUFF_CONFIG_DIR", config_dir)
+        .env("PATH", new_path)
         .status()
         .with_context(|| format!("Cannot launch official Freebuff binary {:?}; set FREEBUFF_BIN to its absolute path", binary))?;
     Ok(status)
